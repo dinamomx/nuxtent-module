@@ -213,6 +213,7 @@ export default function nuxtentLoader(
 
   const componentName = _.camelCase(fileName)
   const componentData = JSON.stringify({
+    ...dirOpts.data,
     ...(frontmatter.data || {}),
     components,
   })

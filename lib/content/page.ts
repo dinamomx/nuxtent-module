@@ -108,7 +108,7 @@ export default class Page {
    */
   get attributes() {
     if (typeof this.config.data === 'object') {
-      return { ...this._rawData.attributes, ...this.config.data }
+      return {...this.config.data, ...this._rawData.attributes }
     }
     return this._rawData.attributes
   }
