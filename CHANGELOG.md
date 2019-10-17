@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## 3.2.0 **BREAKING RELEASE**
+<a name="3.2.0"></a>
+
+Working on Nuxt 2.10.1
+
+- The `nuxtent-body` component now is a functional component
+- The loader no longer tries to guess what components are you using so you must import them mannualy (see below) or use global components
+- The `@[component]` syntax has been removed.
+- Removed the accidental "feature" to omit the body on the query
+
 <a name="3.1.0"></a>
 ## 3.1.0
 
