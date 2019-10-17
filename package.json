@@ -100,6 +100,7 @@
     "core-js": "2",
     "cross-env": "^5.2.0",
     "cssnano": "4.1.10",
+    "eslint-config-standard": "^14.1.0",
     "eventsource-polyfill": "0.9.6",
     "nuxt": "2.6.2",
     "postcss-import": "12.0.1",

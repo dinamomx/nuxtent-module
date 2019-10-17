@@ -30,118 +30,48 @@ function getSection(dirPath: string): string {
   return '/'
 }
 
-const getComponentBaseName = (
-  baseDir: string,
-  name: string,
-  extensions: string[]
-) => {
-  const baseName = join(baseDir, name)
-  for (const extension of extensions) {
-    // TODO: async
-    if (existsSync(baseName + extension)) {
-      return name + extension
-    }
-  }
-  return false
-}
+const insertCodePlugin = (md: MarkdownIt) => {
+  const RE = /\s*{([^}]+)}/
 
-const mergeParserRules = (
-  parserRules: { [name: string]: MarkdownIt.TokenRender },
-  rulesToAlter: string[]
-) => {
-  const newRules: { [name: string]: MarkdownIt.TokenRender } = {}
-  for (const [ruleName, ruleFn] of Object.entries(parserRules)) {
-    const renderer: MarkdownIt.TokenRender = (
-      tokens,
-      idx,
-      options,
-      env,
-      self
-    ) => {
-      if (tokens[idx].attrIndex('v-pre') < 0) {
-        tokens[idx].attrPush(['v-pre']) // add new attribute
-      }
-      // return self.renderToken(tokens, idx, options);
-      return ruleFn(tokens, idx, options, env, self)
+  const parseOptions = (str: string) => {
+    if (!RE.test(str)) {
+      return {}
     }
-    const newRule = rulesToAlter.includes(ruleName) ? renderer : ruleFn
-    newRules[ruleName] = newRule
+    const [, options] = RE.exec(str) || ['', '']
+    const fn = new Function(`return {${options}}`) // eslint-disable-line no-new-func
+    return fn()
   }
 
-  return newRules
-}
-
-function transformMdComponents(
-  source: string,
-  componentsDir: string,
-  extensions: string[]
-) {
-  let transformedSource = source
-  // (`{3}[\s\S]*?`{3}|`{1}[^`].*?`{1}[^`]) // Code snippet
-  // |@\[(#)?(\/)?([\w/\-_\\]*?)\](?:\((.*?)\))? Or component
-  // '@[]' or '@[]()' or '@[#]():n' or @[/]
-  const componentExpression = new RegExp(
-    /(`{3}[\s\S]*?`{3}|`{1}[^`].*?`{1}[^`])|@\[(#)?(\/)?([\w/\-_\\]*?)\](?:\((.*?)\))?/,
-    'g'
-  )
-
-  let result = componentExpression.exec(transformedSource)
-  const components: {
-    [component: string]: string
-  } = {}
-
-  // This goes line for line looking for coincidences until it runs out
-  while (result) {
-    const [match, codeSnippet, isSlot, closeSlot, name, props] = result
-
-    if (!codeSnippet) {
-      const componentName = _.camelCase(name)
-      if (!components[componentName]) {
-        const component = getComponentBaseName(componentsDir, name, extensions)
-        if (!component) {
-          throw new Error(`"${name}" does not exist at ${componentsDir}`)
-        }
-        components[componentName] = component
-      }
-      if (closeSlot) {
-        transformedSource = transformedSource.replace(
-          match,
-          `</${componentName}>`
-        )
-      } else if (isSlot) {
-        // Not auto clossing tag
-        transformedSource = transformedSource.replace(
-          match,
-          `<${componentName} ${props || ''}>`
-        )
-      } else {
-        transformedSource = transformedSource.replace(
-          match,
-          `<${componentName} ${props || ''} />`
-        )
-      }
+  const { fence } = md.renderer.rules
+  md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+    const token = tokens[idx]
+    const info = parseOptions(token.info)
+    if (!info.insert) {
+      return self.renderToken([token], idx, options)
     }
-    result = componentExpression.exec(transformedSource)
-  }
-
-  return {
-    components,
-    transformedSource,
+    const res = fence(tokens, idx, options, env, self)
+    if (info.insert === 'above') {
+      return `${token.content}${res}`
+    }
+    if (info.insert === 'below') {
+      return `${res}${token.content}`
+    }
+    return res
   }
 }
 
-const mdCompParser = (markdownParser: markdownit) => {
-  // we need to add the `v-pre` snippet to code snippets so
-  // that mustage tags (`{{ }}`) are interpreted as raw text
-  if (markdownParser.renderer && markdownParser.renderer.rules) {
-    const codeRules = ['code_inline', 'code_block', 'fence']
+const extractPlugin = (md: MarkdownIt) => {
+  const RE = /^<(script|style)(?=(\s|>|$))/i
 
-    markdownParser.renderer.rules = mergeParserRules(
-      markdownParser.renderer.rules,
-      codeRules
-    )
+  md.renderer.rules.html_block = (tokens, idx, options, env) => {
+    const content = tokens[idx].content
+    const hoistedTags = env.hoistedTags || (env.hoistedTags = [])
+    if (RE.test(content.trim())) {
+      hoistedTags.push(content)
+      return ''
+    }
+    return content
   }
-  return markdownParser
 }
 export default function nuxtentLoader(
   this: loader.LoaderContext,
@@ -149,8 +79,6 @@ export default function nuxtentLoader(
 ) {
   const moduleOpts = getOptions(this)
   const content: ContentOptions = moduleOpts.content
-  const componentsDir: string = moduleOpts.componentsDir
-  const extensions: string[] = moduleOpts.extensions
 
   const section = getSection(this.context)
   const dirOpts = getDirOpts(content, section)
@@ -172,73 +100,16 @@ export default function nuxtentLoader(
   }
 
   const frontmatter = matter(source)
-
-  const { transformedSource, components } = transformMdComponents(
-    frontmatter.content,
-    componentsDir,
-    extensions
-  )
-
-  /**
-   * import components from the array on the frontmatter $components
-   */
-  if (
-    frontmatter.data.$components &&
-    Array.isArray(frontmatter.data.$components)
-  ) {
-    for (const name of frontmatter.data.$components) {
-      const usedComponent = _.camelCase(name)
-      if (!components[usedComponent]) {
-        const component = getComponentBaseName(componentsDir, name, extensions)
-        if (!component) {
-          this.emitWarning(
-            new Error(`"${name}" does not exist at ${componentsDir}`)
-          )
-          continue
-        }
-        components[usedComponent] = component
-      }
-    }
+  const env = {
+    hoistedTags: []
   }
-
+  const md = dirOpts.markdown.parser
   // We do need html
-  dirOpts.markdown.parser.set({ html: true })
-  const template = mdCompParser(dirOpts.markdown.parser).render(
-    transformedSource
-  )
-
-  const asyncImports = Object.keys(components)
-    .map(key => `${key}: () => import('~/components/${components[key]}')`)
-    .join(',\n')
-
-  const componentName = _.camelCase(fileName)
-  const componentData = JSON.stringify({
-    ...dirOpts.data,
-    ...(frontmatter.data || {}),
-    components,
-  })
-  return `
-    <template>
-      <component :is="tag">
-        ${template}
-      </component>
-    </template>
-
-    <script>
-    import { interopDefault } from '~/.nuxt/utils'
-    export default {
-        name: '${componentName}',
-        components: {
-          ${asyncImports}
-        },
-        data: () => (${componentData}),
-        props: {
-          tag: {
-            default: 'div',
-            type: [String, Object]
-          }
-        }
-      }
-    </script>
-  `
+  md.set({ html: true })
+  md.use(extractPlugin)
+  md.use(insertCodePlugin)
+  const html = md.render(frontmatter.content, env)
+  const component = `<template><div class="nuxtent-content">${html}</div></template>
+${env.hoistedTags ? env.hoistedTags.join('\n\n') : ''}`
+  return component
 }

@@ -176,7 +176,7 @@ export default class NuxtentConfig implements Nuxtent.Config.Config {
       data: undefined,
       isPost: false,
       markdown: { ...this.defaultMarkdown },
-      method: [...this.requestMethods],
+      method: [], // TODO: Validate this option
       page: '',
       permalink: ':slug',
       toc: { ...this.defaultToc },
